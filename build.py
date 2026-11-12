@@ -18,11 +18,18 @@ lines = [l for l in (ROOT / "apps-script/Code.gs").read_text(encoding="utf-8").s
 assert len(lines) == 1, "ligne PAGE_HTML introuvable dans Code.gs"
 page = json.loads(lines[0][len(START):].rstrip().rstrip(";"))
 
-# Ce que doGet() ajoute côté Apps Script.
+# Ce que doGet() ajoute côté Apps Script, plus l'icône de l'appli.
 HEAD = """
   <title>Suivi muscu</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <meta name="mobile-web-app-capable" content="yes">"""
+  <meta name="mobile-web-app-capable" content="yes">
+  <!-- Icône et installation sur l'écran d'accueil (propre à la version GitHub Pages). -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Suivi muscu">
+  <meta name="theme-color" content="#08090b">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">"""
 
 def insert(text, anchor, addition, before=False):
     assert text.count(anchor) == 1, f"repère introuvable ou en double : {anchor!r}"
