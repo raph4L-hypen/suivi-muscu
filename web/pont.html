@@ -1,0 +1,101 @@
+<script>
+/* =====================================================================
+   PONT GITHUB PAGES → GOOGLE APPS SCRIPT
+   Hors d'Apps Script, `google.script.run` n'existe pas : ce fichier le
+   recrée à l'identique en appelant le doPost() de Code.gs. Le code de
+   l'appli (App.html) reste ainsi strictement inchangé.
+   L'adresse du déploiement Apps Script n'est jamais dans le dépôt : elle
+   est demandée une fois puis gardée sur l'appareil (localStorage).
+   Pour la changer : ouvrir la page avec #config à la fin de l'adresse.
+   ===================================================================== */
+(function () {
+  'use strict';
+  var KEY = 'sportApiUrl', OK = 'sportApiOk';
+  var RE = /^https:\/\/script\.google\.com\/(?:a\/macros\/[^\/]+|macros)\/s\/[\w-]+\/exec$/;
+  var ls = {
+    get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) { } },
+    del: function (k) { try { localStorage.removeItem(k); } catch (e) { } }
+  };
+
+  /* ---------- Écran de connexion (une seule fois par appareil) ---------- */
+  var asking = null;
+  function askUrl(error) {
+    if (asking) return asking;
+    asking = new Promise(function (resolve) {
+      var el = document.createElement('div');
+      el.className = 'sport-overlay';
+      el.style.zIndex = 98;
+      el.style.background = 'var(--sport-bg)';  // opaque : cache l'écran de chargement
+      el.innerHTML = '<h1>Suivi muscu</h1><p class="sport-sub">Connexion à ton Google Sheet</p>'
+        + '<div class="sport-card"><p class="sport-mute" style="margin-top:0">Colle l\'adresse de ton application Apps Script '
+        + '(elle se termine par <b>/exec</b>). Elle est gardée uniquement sur cet appareil.</p>'
+        + '<label class="sport-lbl">Adresse Apps Script</label>'
+        + '<input id="sport-api-url" inputmode="url" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec">'
+        + '<p id="sport-api-err" class="down" style="font-size:13px;margin:10px 0 0"></p>'
+        + '<button class="sport-btn primary" id="sport-api-ok" style="margin-top:12px">Connecter</button></div>';
+      document.body.appendChild(el);
+      var input = el.querySelector('#sport-api-url'), err = el.querySelector('#sport-api-err');
+      input.value = ls.get(KEY) || '';
+      err.textContent = error || '';
+      function submit() {
+        var url = input.value.trim().split(/[?#]/)[0];
+        if (!RE.test(url)) { err.textContent = 'Adresse non reconnue : elle doit commencer par https://script.google.com/ et finir par /exec.'; return; }
+        ls.set(KEY, url);
+        if (location.hash === '#config') { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { } }
+        el.remove();
+        asking = null;
+        resolve(url);
+      }
+      el.querySelector('#sport-api-ok').addEventListener('click', submit);
+      input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+    });
+    return asking;
+  }
+  // #config ajouté sur une page déjà ouverte : on recharge pour afficher l'écran de connexion.
+  window.addEventListener('hashchange', function () { if (location.hash === '#config') location.reload(); });
+  function getUrl() {
+    var url = ls.get(KEY);
+    return url && location.hash !== '#config' ? Promise.resolve(url) : askUrl();
+  }
+
+  /* ---------- Appel d'une fonction de Code.gs ---------- */
+  function post(url, fn, args) {
+    // text/plain : requête « simple », acceptée par Apps Script sans pré-vérification CORS.
+    return fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn: fn, args: args }) })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (d) { if (!d || typeof d.ok !== 'boolean') throw new Error('réponse inattendue'); return d; });
+  }
+  function call(fn, args) {
+    return getUrl().then(function (url) {
+      return post(url, fn, args).then(function (d) {
+        ls.set(OK, url);
+        if (!d.ok) throw new Error(d.error || 'erreur inconnue');
+        return d.result;
+      }, function () {
+        // Adresse qui a déjà fonctionné : simple souci de réseau, l'appli affiche son erreur habituelle.
+        if (ls.get(OK) === url) throw new Error('connexion au Google Sheet impossible');
+        // Adresse jamais validée : on la redemande, puis on rejoue l'appel.
+        ls.del(KEY);
+        return askUrl('Connexion impossible. Vérifie l\'adresse, et que le déploiement est en accès « Tout le monde ».')
+          .then(function () { return call(fn, args); });
+      });
+    });
+  }
+
+  /* ---------- Même interface que google.script.run ---------- */
+  function runner(ok, ko) {
+    return new Proxy({}, {
+      get: function (_, name) {
+        if (name === 'withSuccessHandler') return function (f) { return runner(f, ko); };
+        if (name === 'withFailureHandler') return function (f) { return runner(ok, f); };
+        return function () {
+          call(name, Array.prototype.slice.call(arguments))
+            .then(function (r) { if (ok) ok(r); }, function (e) { if (ko) ko(e); });
+        };
+      }
+    });
+  }
+  window.google = { script: { run: runner(null, null) } };
+})();
+</script>
