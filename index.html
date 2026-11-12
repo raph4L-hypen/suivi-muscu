@@ -147,6 +147,9 @@
   table.sport-ua th { color: var(--sport-mute); font-weight: 600; font-size: 12px; text-align: center; padding: 6px 2px; }
   table.sport-ua td { text-align: center; padding: 6px 2px; border-top: 1px solid var(--sport-line); }
   table.sport-ua tr.total td { font-weight: 800; border-top: 2px solid var(--sport-line); }
+  table.sport-ua tr.cur td { background: var(--sport-accent-dim); }
+  table.sport-ua tr.cur td:first-child { color: var(--sport-accent); font-weight: 800; }
+  table.sport-ua tr.past td:first-child { color: var(--sport-accent); }
   .sport-step { display: inline-flex; align-items: center; background: var(--sport-card2); border-radius: 10px; }
   .sport-step button { width: 34px; height: 40px; font-size: 20px; font-weight: 700; color: var(--sport-accent); }
   .sport-step input { width: 52px; padding: 8px 0; text-align: center; border: 0; background: transparent; font-weight: 700; font-size: 16px; }
@@ -837,7 +840,7 @@
     const muscles = new Set();
     run = {
       programme_id: p.id, thematique: p.thematique || p.nom, type: p.type,
-      startedAt: now(), pausedTotal: 0, pauseStart: null, exIdx: 0, phase: 'work', restEnd: null, restDur: 0,
+      startedAt: now(), pausedTotal: 0, pauseStart: null, exIdx: 0, setIdx: 0, phase: 'work', restEnd: null, restDur: 0,
       exos: p.exos.map(pe => {
         const ex = X.exByName[pe.exercice] || {};
         splitM(ex.muscles).forEach(m => muscles.add(m));
@@ -889,9 +892,11 @@
 
   function exUA(ex) { return ex.series.reduce((a, s) => a + uaOf(ex.nom, s.reps, s.poids), 0); }
 
-  function uaTable(ex, k) {
+  /** Série en cours de l'exercice affiché (0 = première). */
+  const curSet = ex => Math.min(run.setIdx || 0, ex.series.length - 1);
+  function uaTable(ex, k, cur) {
     return `<table class="sport-ua" data-table="${k}"><tr><th>Série</th><th>Reps</th><th>Poids (kg)</th><th>UA</th></tr>
-      ${ex.series.map((s, i) => `<tr><td>${i + 1}</td>
+      ${ex.series.map((s, i) => `<tr class="${cur == null ? '' : i === cur ? 'cur' : i < cur ? 'past' : ''}"><td>${cur != null && i < cur ? '✓' : i + 1}</td>
         <td><span class="sport-step"><button data-step="${k},${i},reps,-1">−</button><input inputmode="numeric" data-in="${k},${i},reps" value="${s.reps}"><button data-step="${k},${i},reps,1">+</button></span></td>
         <td><span class="sport-step"><button data-step="${k},${i},poids,-2.5">−</button><input inputmode="decimal" data-in="${k},${i},poids" value="${fmtKg(s.poids)}"><button data-step="${k},${i},poids,2.5">+</button></span></td>
         <td data-ua="${k},${i}">${fmt(uaOf(ex.nom, s.reps, s.poids))}</td></tr>`).join('')}
@@ -911,28 +916,31 @@
   function renderRun(wait) {
     const el = $('#sport-run');
     const n = run.exos.length;
-    let h = `<div class="sport-runbar"><span class="sport-mute" style="font-weight:600">${run.phase === 'end' ? 'Fin' : `Exo ${run.exIdx + 1}/${n}`}</span><span></span>
+    let h = `<div class="sport-runbar"><span class="sport-mute" style="font-weight:600">${run.phase === 'end' ? 'Fin' : `Exo ${run.exIdx + 1}/${n} · Série ${curSet(run.exos[run.exIdx]) + 1}/${run.exos[run.exIdx].series.length}`}</span><span></span>
       <button class="sport-pausebtn" id="sport-pause" aria-label="Pause">❚❚</button></div><div class="sport-runbody ${wait ? 'wait' : ''}">`;
 
     if (run.phase === 'work') {
       const k = run.exIdx, ex = run.exos[k], info = X.exByName[ex.nom] || {};
       const isLast = k === n - 1;
+      const si = curSet(ex), lastSet = si >= ex.series.length - 1;
       h += `<div class="sport-visual">${info.image_url ? `<img src="${esc(info.image_url)}" alt="">` : ''}${bodyMap(info.muscles)}</div>
         <h1 style="margin-top:14px">${esc(ex.nom)}</h1>
         <div class="sport-row sport-wrap">${splitM(info.muscles).map(m => `<span class="sport-chip red">${esc(MUSCLES[m] || m)}</span>`).join('')}</div>
         ${info.consigne ? `<p class="sport-mute" style="font-size:14px;margin-top:4px">${esc(info.consigne)}</p>` : ''}
         ${targetBlock(ex, k)}
-        <div class="sport-card">${uaTable(ex, k)}</div>
-        <div class="sport-fixedcta"><button class="sport-btn primary sport-finish" id="${isLast ? 'sport-endbtn' : 'sport-done'}">${isLast ? 'FIN DE SÉANCE' : 'Finis !'}</button></div>`;
+        <div class="sport-card">${uaTable(ex, k, si)}</div>
+        <div class="sport-fixedcta"><button class="sport-btn primary sport-finish" id="${!lastSet ? 'sport-setdone' : isLast ? 'sport-endbtn' : 'sport-done'}">${!lastSet ? `Série ${si + 1}/${ex.series.length} faite` : isLast ? 'FIN DE SÉANCE' : 'Finis !'}</button></div>`;
     } else if (run.phase === 'rest') {
       const k = run.exIdx, ex = run.exos[k], next = run.exos[k + 1];
+      const between = run.restKind === 'set', si = curSet(ex), ns = ex.series[si + 1];
       h += `<div class="sport-rest"><div class="sport-mute" style="font-weight:600;letter-spacing:1px">TEMPS DE PAUSE</div>
           <div class="cd" id="sport-cd">${mmss(run.restDur * 1000)}</div>
           <div class="sport-row" style="justify-content:center;margin:6px 0 14px"><button class="sport-chip" data-rest="-15">−15 s</button><button class="sport-chip" data-rest="15">+15 s</button></div></div>
-        <div class="sport-card"><h3>${esc(ex.nom)} — ce que tu as vraiment fait</h3>${uaTable(ex, k)}</div>
+        <div class="sport-card"><h3>${esc(ex.nom)} — ce que tu as vraiment fait</h3>${uaTable(ex, k, between ? si + 1 : ex.series.length)}</div>
         ${targetBlock(ex, k)}
-        ${next ? `<div class="sport-card"><span class="sport-mute">À suivre</span><div style="font-weight:700;font-size:17px">${esc(next.nom)}</div><div class="sport-mute">${next.lastTxt ? 'Dernière fois : ' + esc(next.lastTxt) : seriesSummary(next.series)}</div></div>` : ''}
-        <div class="sport-fixedcta"><button class="sport-btn primary sport-finish" id="sport-next">Reprendre</button></div>`;
+        ${between && ns ? `<div class="sport-card"><span class="sport-mute">À suivre</span><div style="font-weight:700;font-size:17px">Série ${si + 2}/${ex.series.length}</div><div class="sport-mute">${ns.reps} × ${fmtKg(ns.poids)} kg</div></div>` : ''}
+        ${!between && next ? `<div class="sport-card"><span class="sport-mute">À suivre</span><div style="font-weight:700;font-size:17px">${esc(next.nom)}</div><div class="sport-mute">${next.lastTxt ? 'Dernière fois : ' + esc(next.lastTxt) : seriesSummary(next.series)}</div></div>` : ''}
+        <div class="sport-fixedcta"><button class="sport-btn primary sport-finish" id="${between ? 'sport-nextset' : 'sport-next'}">${between ? 'Série suivante' : 'Reprendre'}</button></div>`;
     } else if (run.phase === 'end') {
       const total = run.exos.reduce((a, e) => a + exUA(e), 0);
       h += `<h1>Séance terminée 💪</h1><p class="sport-sub">${esc(run.thematique)} · ${Math.round(elapsed() / 60000)} min</p>
@@ -1006,12 +1014,13 @@
     }
     if (t.dataset.addset) { const ex = run.exos[t.dataset.addset]; const l = ex.series[ex.series.length - 1] || { reps: 10, poids: 0 }; ex.series.push({ ...l }); save(); renderRun(); return; }
     if (t.dataset.rmset) { const ex = run.exos[t.dataset.rmset]; if (ex.series.length > 1) ex.series.pop(); save(); renderRun(); return; }
-    if (t.id === 'sport-done') {
+    if (t.id === 'sport-done' || t.id === 'sport-setdone') {
       const ex = run.exos[run.exIdx];
-      run.phase = 'rest'; run.restDur = ex.repos; run.restEnd = now() + ex.repos * 1000; beeped = false; save(); renderRun(); onTick(); return;
+      run.phase = 'rest'; run.restKind = t.id === 'sport-setdone' ? 'set' : 'exo'; run.restDur = ex.repos; run.restEnd = now() + ex.repos * 1000; beeped = false; save(); renderRun(); onTick(); return;
     }
     if (t.dataset.rest) { run.restEnd += num(t.dataset.rest) * 1000; run.restDur = Math.max(0, run.restDur + num(t.dataset.rest)); if (run.restEnd > now()) beeped = false; save(); onTick(); return; }
-    if (t.id === 'sport-next') { run.exIdx++; run.phase = 'work'; run.restEnd = null; save(); renderRun(); return; }
+    if (t.id === 'sport-nextset') { run.setIdx = curSet(run.exos[run.exIdx]) + 1; run.phase = 'work'; run.restEnd = null; save(); renderRun(); return; }
+    if (t.id === 'sport-next') { run.exIdx++; run.setIdx = 0; run.phase = 'work'; run.restEnd = null; save(); renderRun(); return; }
     if (t.id === 'sport-endbtn') { run.phase = 'end'; save(); renderRun(); return; }
     if (t.id === 'sport-backlast') { run.phase = 'work'; save(); renderRun(); return; }
     if (t.dataset.acc) { run.accompagne = t.dataset.acc === '1'; save(); document.querySelectorAll('[data-acc]').forEach(b => b.classList.toggle('on', b === t)); return; }
