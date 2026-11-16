@@ -40,7 +40,8 @@ function doPost(e) {
     getData: getData, saveSeance: saveSeance, deleteSeance: deleteSeance,
     saveProgramme: saveProgramme, deleteProgramme: deleteProgramme,
     saveExercice: saveExercice, deleteExercice: deleteExercice,
-    saveReglages: saveReglages, getAgenda: getAgenda
+    saveReglages: saveReglages, getAgenda: getAgenda,
+    marquerTache: marquerTache, importerRappels: importerRappels
   };
   var out;
   try {
@@ -166,14 +167,64 @@ function saveReglages(obj) {
 /* ---------- Agenda Google ---------- */
 
 /** Événements de l'agenda entre deux instants (en millisecondes). */
-function getAgenda(startMs, endMs) {
+function agendaCal_() {
   var calId = '';
   readTable_('Reglages').forEach(function (r) { if (r.cle === 'agenda_id') calId = String(r.valeur || '').trim(); });
   var cal = calId ? CalendarApp.getCalendarById(calId) : CalendarApp.getDefaultCalendar();
   if (!cal) throw new Error('Agenda introuvable : ' + calId);
-  return cal.getEvents(new Date(startMs), new Date(endMs)).map(function (e) {
-    return { titre: e.getTitle(), debut: e.getStartTime().getTime(), fin: e.getEndTime().getTime(), journee: e.isAllDayEvent() };
+  return cal;
+}
+var RAPPEL_TAG = 'ValiDay:rappel';   // note posée sur les événements créés depuis les Rappels de l'iPhone
+
+function getAgenda(startMs, endMs) {
+  return agendaCal_().getEvents(new Date(startMs), new Date(endMs)).map(function (e) {
+    return { titre: e.getTitle(), debut: e.getStartTime().getTime(), fin: e.getEndTime().getTime(), journee: e.isAllDayEvent(),
+      id: e.getId(), rappel: String(e.getDescription() || '').indexOf(RAPPEL_TAG) >= 0 };
   });
+}
+
+/* ---------- ValiDay : tâches ---------- */
+
+/** Coche (ou décoche) une tâche dans l'agenda : ajoute ou retire « ✓ » devant le titre de l'événement. */
+function marquerTache(id, debutMs, fait) {
+  var d = new Date(debutMs);
+  var a = new Date(d.getFullYear(), d.getMonth(), d.getDate()), b = new Date(a.getTime() + 864e5);
+  var ev = agendaCal_().getEvents(a, b).filter(function (e) { return e.getId() === id; })[0];
+  if (!ev) throw new Error('Événement introuvable');
+  var t = ev.getTitle().replace(/^\s*✓\s*/, '');
+  ev.setTitle(fait ? '✓ ' + t : t);
+  return true;
+}
+
+/**
+ * Appelée par le raccourci iPhone « ValiDay Rappels ».
+ * texte : une ligne par rappel non terminé, au format « AAAA-MM-JJ|titre ».
+ * - crée un événement « À faire : titre » (journée entière) pour chaque rappel pas encore dans l'agenda ;
+ * - coche les événements dont le rappel n'est plus dans la liste (terminé sur l'iPhone) ;
+ * - renvoie dans « faits » les titres cochés dans ValiDay, que le raccourci termine dans Rappels.
+ */
+function importerRappels(texte, prefixe) {
+  var cal = agendaCal_(), pre = (prefixe || 'À faire') + ' : ', crees = 0, vus = {};
+  var nu = function (t) { return String(t).replace(/^\s*✓\s*/, '').replace(/^[^:]*:\s*/, '').trim(); };
+  String(texte || '').split(/\r?\n/).forEach(function (ligne) {
+    var i = ligne.indexOf('|'); if (i < 0) return;
+    var m = ligne.slice(0, i).trim().match(/^(\d{4})-(\d{2})-(\d{2})/), titre = ligne.slice(i + 1).trim();
+    if (!m || !titre) return;
+    var jour = new Date(+m[1], +m[2] - 1, +m[3]);
+    vus[titre] = true;
+    var existe = cal.getEvents(jour, new Date(jour.getTime() + 864e5)).some(function (e) {
+      return String(e.getDescription() || '').indexOf(RAPPEL_TAG) >= 0 && nu(e.getTitle()) === titre;
+    });
+    if (!existe) { cal.createAllDayEvent(pre + titre, jour, { description: RAPPEL_TAG }); crees++; }
+  });
+  var now = new Date(), faits = [];
+  cal.getEvents(new Date(now.getTime() - 30 * 864e5), new Date(now.getTime() + 90 * 864e5)).forEach(function (e) {
+    if (String(e.getDescription() || '').indexOf(RAPPEL_TAG) < 0) return;
+    var titre = nu(e.getTitle()), coche = /^\s*✓/.test(e.getTitle());
+    if (coche) { if (vus[titre]) faits.push(titre); }
+    else if (!vus[titre]) e.setTitle('✓ ' + e.getTitle());      // rappel terminé directement sur l'iPhone
+  });
+  return { crees: crees, faits: faits };
 }
 
 /** À lancer une fois depuis l'éditeur : autorise l'accès au Sheet et à l'agenda, et affiche un diagnostic. */

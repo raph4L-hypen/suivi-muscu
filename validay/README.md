@@ -29,3 +29,16 @@ ValiDay lit l'agenda via le script Apps Script de Suivi muscu (fonction `getAgen
 - La synchronisation couvre 60 jours passés et 21 jours à venir. Elle se relance à l'ouverture de l'appli si la dernière date de plus de 15 minutes.
 
 L'adresse `/exec` reste uniquement sur l'appareil, jamais dans ce dépôt.
+
+## Tâches ponctuelles et Rappels iPhone
+
+- Un événement d'agenda dont le titre commence par `À faire :` devient une tâche à cocher ce jour-là. Non faite, elle reste affichée « en retard » pendant 14 jours.
+- Une tâche validée rapporte 20 ou 30 points (réglage dans Profil → Agenda, tâches & rappels).
+- Retour vers l'agenda : la tâche validée reçoit `✓` devant le titre de l'événement (`marquerTache` dans `apps-script/Code.gs`).
+- Rappels iPhone : le raccourci « ValiDay Rappels » envoie les rappels datés au script (`importerRappels`), qui les crée dans l'agenda. Il termine dans Rappels ceux qui ont été validés dans ValiDay. Le mode d'emploi pas à pas est dans l'appli : Profil → Agenda, tâches & rappels → Mode d'emploi.
+
+Ces deux fonctions demandent de recoller `apps-script/Code.gs` dans Apps Script et de déployer une **nouvelle version** (l'adresse `/exec` ne change pas).
+
+## Navigation
+
+Quatre menus, de gauche à droite : Focus, Aujourd'hui, Progrès, Profil. On passe de l'un à l'autre en glissant. Appui long sur une habitude pour la modifier ; le bouton liste en haut d'Aujourd'hui affiche toutes les habitudes.
